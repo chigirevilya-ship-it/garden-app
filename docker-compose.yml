@@ -1,0 +1,7 @@
+services:
+  gardenos:
+    build: .
+    container_name: gardenos
+    ports:
+      - "8420:80"
+    restart: unless-stopped

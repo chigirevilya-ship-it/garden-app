@@ -43,3 +43,30 @@ npm run preview   # serve the production build
 
 Stack: React 19 · TypeScript · Vite · Tailwind CSS 4 · Zustand (persisted to localStorage) ·
 React Router. Demo data seeds on first load; state persists per browser.
+
+## Self-hosting (NAS / home server)
+
+The app is a fully static build — no backend, no database server. Two options:
+
+**Docker (Synology Container Manager, QNAP, Unraid, plain docker):**
+
+```bash
+git clone <this repo> && cd garden-app
+docker compose up -d --build     # serves on http://<nas-ip>:8420
+```
+
+Change the port in `docker-compose.yml` if 8420 is taken. The image is a multi-stage
+build (Node → nginx), ~50 MB, no volumes needed.
+
+**Plain static folder (Web Station / any web server):**
+
+```bash
+npm install && npm run build     # on any machine with Node 20+
+```
+
+Copy the contents of `dist/` into your NAS web root. The app uses hash-based routing,
+so no rewrite rules are required. Alternatively, `npx vite build -c vite.demo.config.ts`
+produces `dist-demo/index.html` — a single self-contained file you can drop anywhere.
+
+Note: data lives in each browser's localStorage, so plants and tasks are per-device
+for now; the account-backed API from the system design doc is what will sync devices.
