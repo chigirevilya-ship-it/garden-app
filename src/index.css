@@ -1,0 +1,38 @@
+@import "@fontsource/cormorant-garamond/400.css";
+@import "@fontsource/cormorant-garamond/500.css";
+@import "@fontsource/cormorant-garamond/600.css";
+@import "@fontsource/cormorant-garamond/700.css";
+@import "@fontsource/outfit/300.css";
+@import "@fontsource/outfit/400.css";
+@import "@fontsource/outfit/500.css";
+@import "@fontsource/outfit/600.css";
+@import "@fontsource/outfit/700.css";
+@import "tailwindcss";
+
+@theme {
+  --color-parchment: #f5f0e8;
+  --color-parchment-dark: #ece5d8;
+  --color-cream: #fbf8f2;
+  --color-ink: #2b2b23;
+  --color-ink-soft: #6b6a58;
+  --color-garden: #2a4a22;
+  --color-garden-light: #3d6532;
+  --color-garden-pale: #e2e9dc;
+  --color-amber-urgent: #b97e14;
+  --color-red-urgent: #a63d2f;
+  --color-line: #ddd4c3;
+
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --font-sans: "Outfit", system-ui, sans-serif;
+}
+
+html {
+  background-color: var(--color-parchment);
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
