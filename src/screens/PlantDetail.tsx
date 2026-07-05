@@ -5,7 +5,8 @@ import { usePlantRows } from '../lib/selectors'
 import { MONTH_NAMES, formatDate, formatHeight, today } from '../lib/plant'
 import { Button, Card, Chip, ColorSwatchStrip, EmptyState, Field, icons, inputClass } from '../components/ui'
 import { typeLabel } from './Plants'
-import type { JournalTag, OverridableKey, Overrides, PlantSpecies } from '../lib/types'
+import type { JournalTag, OverridableKey, Overrides, PlantSpecies, Season, SeasonalColors } from '../lib/types'
+import { SEASONS } from '../lib/plant'
 
 type EditorKind = 'number' | 'months' | 'month' | 'water' | 'sun' | 'boolean'
 
@@ -91,6 +92,53 @@ function OverrideEditor({
       <Button variant="secondary" className="!min-h-9 !px-2" onClick={save}>{icons.check('h-4 w-4')}</Button>
       <Button variant="ghost" className="!min-h-9 !px-2" onClick={onCancel}>{icons.x('h-4 w-4')}</Button>
     </span>
+  )
+}
+
+function SeasonalColorsEditor({
+  instanceId,
+  colors,
+  custom,
+  archived,
+}: {
+  instanceId: string
+  colors: SeasonalColors
+  custom: boolean
+  archived: boolean
+}) {
+  const setSeasonalColors = useGarden((s) => s.setSeasonalColors)
+
+  return (
+    <Card className="p-5">
+      <h2 className="mb-1 font-display text-2xl font-semibold text-garden">Seasonal Colors</h2>
+      <p className="mb-4 text-xs text-ink-soft">
+        These paint this plant's marker on the Garden Map and its chips on the Calendar as the
+        seasons change — pick what the plant actually looks like each season.
+      </p>
+      <div className="grid grid-cols-4 gap-2">
+        {SEASONS.map((season: Season) => (
+          <label key={season} className="flex flex-col items-center gap-1.5">
+            <input
+              type="color"
+              value={colors[season]}
+              disabled={archived}
+              onChange={(e) => setSeasonalColors(instanceId, { ...colors, [season]: e.target.value })}
+              className="h-11 w-full cursor-pointer rounded-lg border border-line bg-cream p-1 disabled:cursor-not-allowed"
+              aria-label={`${season} color`}
+            />
+            <span className="text-[11px] font-medium text-ink-soft capitalize">{season}</span>
+          </label>
+        ))}
+      </div>
+      {custom && !archived && (
+        <button
+          className="mt-3 cursor-pointer text-xs text-ink-soft underline hover:text-ink"
+          onClick={() => setSeasonalColors(instanceId, undefined)}
+        >
+          Reset to this plant's default palette
+        </button>
+      )}
+    </Card>
   )
 }
 
@@ -281,6 +329,14 @@ export default function PlantDetail() {
             </dl>
             {instance.notes && <p className="mt-3 border-t border-line pt-3 text-sm text-ink-soft italic">{instance.notes}</p>}
           </Card>
+
+          {/* Seasonal colors (US-201 step 3) */}
+          <SeasonalColorsEditor
+            instanceId={instance.id}
+            colors={plant.colors}
+            custom={!!instance.seasonalColors}
+            archived={archived}
+          />
 
           {/* Journal (US-501) */}
           <Card className="p-5">

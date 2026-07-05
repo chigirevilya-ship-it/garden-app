@@ -11,6 +11,7 @@ import type {
   Placement,
   PlantInstance,
   PlantSpecies,
+  SeasonalColors,
   Task,
   TaskStatus,
 } from './lib/types'
@@ -46,15 +47,20 @@ interface GardenState {
 
   updateGarden: (patch: Partial<Garden>) => void
 
+  addBed: (bed: Omit<Bed, 'id'>) => string
+  updateBed: (id: string, patch: Partial<Omit<Bed, 'id'>>) => void
+  deleteBed: (id: string) => void
+
   addPlant: (instance: Omit<PlantInstance, 'id' | 'status' | 'overrides'> & { overrides?: Overrides }) => string
   addSpecies: (species: Omit<PlantSpecies, 'id' | 'source'>) => string
   updateInstance: (id: string, patch: Partial<PlantInstance>) => void
   setOverride: (id: string, key: keyof Overrides, value: Overrides[keyof Overrides]) => void
   clearOverride: (id: string, key: keyof Overrides) => void
+  setSeasonalColors: (id: string, colors?: SeasonalColors) => void
   archivePlant: (id: string, reason: string) => void
   deletePlant: (id: string) => void
 
-  placePlant: (instanceId: string, x: number, y: number, bedId?: string) => void
+  placePlant: (instanceId: string, x: number, y: number) => void
   removePlacement: (instanceId: string) => void
 
   setTaskStatus: (id: string, status: TaskStatus, snoozedTo?: string) => void
@@ -79,6 +85,15 @@ function regenerate(state: Pick<GardenState, 'instances' | 'species' | 'garden' 
   return mergeGeneratedTasks(state.tasks, generateTasks(state.instances, state.species, state.garden, today()))
 }
 
+function bedAt(beds: Bed[], x: number, y: number): Bed | undefined {
+  return beds.find((b) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h)
+}
+
+/** Re-derive each placement's bed from geometry after beds change. */
+function reassignBeds(placements: Placement[], beds: Bed[]): Placement[] {
+  return placements.map((p) => ({ ...p, bedId: bedAt(beds, p.x, p.y)?.id }))
+}
+
 export const useGarden = create<GardenState>()(
   persist(
     (set) => ({
@@ -93,6 +108,27 @@ export const useGarden = create<GardenState>()(
       companionRules: seedCompanionRules,
 
       updateGarden: (patch) => set((s) => ({ garden: { ...s.garden, ...patch } })),
+
+      addBed: (bed) => {
+        const id = uid('bed')
+        set((s) => {
+          const beds = [...s.beds, { ...bed, id }]
+          return { beds, placements: reassignBeds(s.placements, beds) }
+        })
+        return id
+      },
+
+      updateBed: (id, patch) =>
+        set((s) => {
+          const beds = s.beds.map((b) => (b.id === id ? { ...b, ...patch } : b))
+          return { beds, placements: reassignBeds(s.placements, beds) }
+        }),
+
+      deleteBed: (id) =>
+        set((s) => {
+          const beds = s.beds.filter((b) => b.id !== id)
+          return { beds, placements: reassignBeds(s.placements, beds) }
+        }),
 
       addPlant: (data) => {
         const id = uid('pi')
@@ -134,6 +170,11 @@ export const useGarden = create<GardenState>()(
           return { instances, tasks: regenerate({ ...s, instances }) }
         }),
 
+      setSeasonalColors: (id, colors) =>
+        set((s) => ({
+          instances: s.instances.map((p) => (p.id === id ? { ...p, seasonalColors: colors } : p)),
+        })),
+
       archivePlant: (id, reason) =>
         set((s) => {
           const instances = s.instances.map((p) =>
@@ -158,11 +199,11 @@ export const useGarden = create<GardenState>()(
           journal: s.journal.filter((e) => e.instanceId !== id),
         })),
 
-      placePlant: (instanceId, x, y, bedId) =>
+      placePlant: (instanceId, x, y) =>
         set((s) => ({
           placements: [
             ...s.placements.filter((p) => p.instanceId !== instanceId),
-            { instanceId, x, y, bedId },
+            { instanceId, x, y, bedId: bedAt(s.beds, x, y)?.id },
           ],
         })),
 

@@ -12,8 +12,8 @@ import {
   seasonForMonth,
   spacingConflicts,
 } from '../lib/plant'
-import type { Season } from '../lib/types'
-import { Button, Card, Chip, PageHeader, icons, inputClass } from '../components/ui'
+import type { Bed, Drainage, Season, SunNeeds } from '../lib/types'
+import { Button, Card, Chip, Field, PageHeader, icons, inputClass } from '../components/ui'
 
 type Layer = 'none' | 'height' | 'spacing' | 'sunlight' | 'companions' | 'drainage'
 
@@ -35,12 +35,113 @@ interface Transform {
   ty: number
 }
 
+interface Rect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+const snap = (v: number) => Math.round(v * 2) / 2
+
+function normRect(a: { x: number; y: number }, b: { x: number; y: number }): Rect {
+  return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) }
+}
+
+type BedAction =
+  | { kind: 'draw'; start: { x: number; y: number } }
+  | { kind: 'move'; bedId: string; start: { x: number; y: number }; orig: Rect; moved: boolean }
+  | { kind: 'resize'; bedId: string; orig: Rect }
+
+/** Shared editor for a new (pending) or existing bed: name + growing conditions (US-104). */
+function BedForm({
+  bed,
+  pending,
+  onCreate,
+  onChange,
+  onDelete,
+  onClose,
+}: {
+  bed: Partial<Bed>
+  pending: boolean
+  onCreate?: (data: { name: string; soilType: string; sunlight: SunNeeds; drainage: Drainage }) => void
+  onChange?: (patch: Partial<Bed>) => void
+  onDelete?: () => void
+  onClose: () => void
+}) {
+  const [name, setName] = useState(bed.name ?? '')
+  const [soilType, setSoilType] = useState(bed.soilType ?? 'loam')
+  const [sunlight, setSunlight] = useState<SunNeeds>(bed.sunlight ?? 'full')
+  const [drainage, setDrainage] = useState<Drainage>(bed.drainage ?? 'well')
+
+  const patch = (p: Partial<Bed>) => onChange?.(p)
+
+  return (
+    <Card className="mt-4 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="font-display text-2xl font-semibold text-garden">
+          {pending ? `New bed (${bed.w} × ${bed.h} ft)` : `Edit “${bed.name}”`}
+        </h2>
+        <Button variant="ghost" onClick={onClose}>{icons.x('h-4 w-4')}</Button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-4">
+        <Field label="Bed name">
+          <input
+            className={inputClass}
+            value={name}
+            autoFocus={pending}
+            placeholder="e.g. Rose Border"
+            onChange={(e) => {
+              setName(e.target.value)
+              if (!pending && e.target.value.trim()) patch({ name: e.target.value.trim() })
+            }}
+          />
+        </Field>
+        <Field label="Soil type">
+          <select className={inputClass} value={soilType} onChange={(e) => { setSoilType(e.target.value); patch({ soilType: e.target.value }) }}>
+            {['loam', 'clay', 'sandy', 'silt'].map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Sunlight">
+          <select className={inputClass} value={sunlight} onChange={(e) => { setSunlight(e.target.value as SunNeeds); patch({ sunlight: e.target.value as SunNeeds }) }}>
+            <option value="full">Full sun</option>
+            <option value="partial">Partial</option>
+            <option value="shade">Shade</option>
+          </select>
+        </Field>
+        <Field label="Drainage">
+          <select className={inputClass} value={drainage} onChange={(e) => { setDrainage(e.target.value as Drainage); patch({ drainage: e.target.value as Drainage }) }}>
+            <option value="well">Well-drained</option>
+            <option value="boggy">Boggy</option>
+            <option value="dry">Dry</option>
+          </select>
+        </Field>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {pending ? (
+          <Button disabled={!name.trim()} onClick={() => onCreate?.({ name: name.trim(), soilType, sunlight, drainage })}>
+            Create bed
+          </Button>
+        ) : (
+          <>
+            <p className="text-xs text-ink-soft">Drag the bed to move it · drag the corner handle to resize · sunlight and drainage drive the map's wash layers.</p>
+            <Button variant="danger" className="ml-auto" onClick={onDelete}>Delete bed</Button>
+          </>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 export default function MapScreen() {
   const garden = useGarden((s) => s.garden)
   const beds = useGarden((s) => s.beds)
   const rules = useGarden((s) => s.companionRules)
   const placePlant = useGarden((s) => s.placePlant)
   const removePlacement = useGarden((s) => s.removePlacement)
+  const addBed = useGarden((s) => s.addBed)
+  const updateBed = useGarden((s) => s.updateBed)
+  const deleteBed = useGarden((s) => s.deleteBed)
 
   const rows = usePlantRows()
   const placed = usePlacedPlants()
@@ -53,6 +154,24 @@ export default function MapScreen() {
   const [placingAt, setPlacingAt] = useState<{ x: number; y: number } | null>(null)
   const [placeSearch, setPlaceSearch] = useState('')
   const [transform, setTransform] = useState<Transform>({ k: 1, tx: 0, ty: 0 })
+
+  // Bed editing (US-104)
+  const [editingBeds, setEditingBeds] = useState(false)
+  const [selectedBedId, setSelectedBedId] = useState<string | null>(null)
+  const [bedDraft, setBedDraft] = useState<Rect | null>(null) // live rectangle while drawing
+  const [pendingBed, setPendingBed] = useState<Rect | null>(null) // drawn, awaiting name
+  const bedAction = useRef<BedAction | null>(null)
+
+  const toggleBedEditing = () => {
+    setEditingBeds((v) => !v)
+    setSelectedBedId(null)
+    setBedDraft(null)
+    setPendingBed(null)
+    setSelected(null)
+    setPlacingAt(null)
+    setMoving(false)
+    bedAction.current = null
+  }
 
   const W = garden.widthUnits
   const H = garden.heightUnits
@@ -91,6 +210,29 @@ export default function MapScreen() {
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     svgRef.current!.setPointerCapture(e.pointerId)
     const pointers = gesture.current?.pointers ?? new Map()
+
+    if (editingBeds && pointers.size === 0) {
+      // first finger in edit mode starts a bed gesture: resize handle → bed body → draw
+      const pt = toGarden(e.clientX, e.clientY)
+      const sel = beds.find((b) => b.id === selectedBedId)
+      if (sel && Math.abs(pt.x - (sel.x + sel.w)) < 0.8 && Math.abs(pt.y - (sel.y + sel.h)) < 0.8) {
+        bedAction.current = { kind: 'resize', bedId: sel.id, orig: { x: sel.x, y: sel.y, w: sel.w, h: sel.h } }
+      } else {
+        const hit = [...beds].reverse().find((b) => pt.x >= b.x && pt.x <= b.x + b.w && pt.y >= b.y && pt.y <= b.y + b.h)
+        if (hit) {
+          bedAction.current = { kind: 'move', bedId: hit.id, start: pt, orig: { x: hit.x, y: hit.y, w: hit.w, h: hit.h }, moved: false }
+        } else if (pt.x >= 0 && pt.y >= 0 && pt.x <= W && pt.y <= H) {
+          bedAction.current = { kind: 'draw', start: { x: snap(pt.x), y: snap(pt.y) } }
+        }
+      }
+    } else if (editingBeds && bedAction.current) {
+      // second finger joins → abandon the bed gesture, let pinch take over
+      const a = bedAction.current
+      if (a.kind === 'move' || a.kind === 'resize') updateBed(a.bedId, a.orig)
+      bedAction.current = null
+      setBedDraft(null)
+    }
+
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
     const pts = [...pointers.values()]
     const mid = pts.length === 2 ? { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 } : pts[0]
@@ -110,6 +252,30 @@ export default function MapScreen() {
     const pts = [...g.pointers.values()]
     const rect = svgRef.current!.getBoundingClientRect()
     const pxToVb = W / rect.width
+
+    if (editingBeds && pts.length === 1) {
+      const a = bedAction.current
+      if (!a) return // no one-finger panning in edit mode; use two fingers, wheel, or buttons
+      const pt = toGarden(e.clientX, e.clientY)
+      g.movedFar = true
+      if (a.kind === 'draw') {
+        setBedDraft(normRect(a.start, { x: snap(pt.x), y: snap(pt.y) }))
+      } else if (a.kind === 'move') {
+        const dx = snap(pt.x - a.start.x)
+        const dy = snap(pt.y - a.start.y)
+        if (dx !== 0 || dy !== 0) a.moved = true
+        updateBed(a.bedId, {
+          x: Math.min(Math.max(a.orig.x + dx, 0), W - a.orig.w),
+          y: Math.min(Math.max(a.orig.y + dy, 0), H - a.orig.h),
+        })
+      } else {
+        updateBed(a.bedId, {
+          w: Math.max(1, Math.min(snap(pt.x - a.orig.x), W - a.orig.x)),
+          h: Math.max(1, Math.min(snap(pt.y - a.orig.y), H - a.orig.y)),
+        })
+      }
+      return
+    }
 
     if (pts.length === 1) {
       const dx = pts[0].x - g.startMid.x
@@ -140,6 +306,26 @@ export default function MapScreen() {
     if (g.pointers.size === 0) {
       const tapped = !g.movedFar
       gesture.current = null
+      if (editingBeds) {
+        const a = bedAction.current
+        bedAction.current = null
+        setBedDraft(null)
+        if (a?.kind === 'draw') {
+          const pt = toGarden(e.clientX, e.clientY)
+          const drawn = normRect(a.start, { x: snap(pt.x), y: snap(pt.y) })
+          if (drawn.w >= 1 && drawn.h >= 1) {
+            setPendingBed(drawn)
+            setSelectedBedId(null)
+          } else {
+            setSelectedBedId(null) // tap on empty ground deselects
+            setPendingBed(null)
+          }
+        } else if (a?.kind === 'move' && !a.moved) {
+          setSelectedBedId(a.bedId) // tap on a bed selects it
+          setPendingBed(null)
+        }
+        return
+      }
       if (tapped) handleTap(e.clientX, e.clientY)
     } else {
       // re-anchor remaining pointer
@@ -161,8 +347,7 @@ export default function MapScreen() {
       .find((p) => Math.hypot(p.x - pt.x, p.y - pt.y) <= Math.max(MARKER_RADIUS_FT[heightCategory(p.plant.matureHeightIn)], 0.8))
 
     if (moving && selected) {
-      const bed = beds.find((b) => snapped.x >= b.x && snapped.x <= b.x + b.w && snapped.y >= b.y && snapped.y <= b.y + b.h)
-      placePlant(selected, snapped.x, snapped.y, bed?.id)
+      placePlant(selected, snapped.x, snapped.y)
       setMoving(false)
       return
     }
@@ -197,8 +382,7 @@ export default function MapScreen() {
 
   const confirmPlace = (instanceId: string) => {
     if (!placingAt) return
-    const bed = beds.find((b) => placingAt.x >= b.x && placingAt.x <= b.x + b.w && placingAt.y >= b.y && placingAt.y <= b.y + b.h)
-    placePlant(instanceId, placingAt.x, placingAt.y, bed?.id)
+    placePlant(instanceId, placingAt.x, placingAt.y)
     setPlacingAt(null)
     setPlaceSearch('')
     setSelected(instanceId)
@@ -233,7 +417,16 @@ export default function MapScreen() {
     <div>
       <PageHeader
         title="Garden Map"
-        subtitle={`${W} × ${H} ft · ${placed.length} plants placed · tap an empty spot to plant`}
+        subtitle={
+          editingBeds
+            ? 'Bed editing — drag on empty ground to draw a bed, tap a bed to edit or move it'
+            : `${W} × ${H} ft · ${placed.length} plants placed · tap an empty spot to plant`
+        }
+        action={
+          <Button variant={editingBeds ? 'primary' : 'secondary'} onClick={toggleBedEditing}>
+            {editingBeds ? 'Done editing beds' : 'Edit beds'}
+          </Button>
+        }
       />
 
       {/* Season toggle (US-102) */}
@@ -296,20 +489,45 @@ export default function MapScreen() {
                     : layer === 'drainage'
                       ? DRAIN_WASH[b.drainage ?? 'well']
                       : '#ddd6c2'
+                const isSelectedBed = editingBeds && b.id === selectedBedId
                 return (
                   <g key={b.id}>
                     <rect
                       x={b.x} y={b.y} width={b.w} height={b.h} rx={0.4}
                       fill={wash}
                       fillOpacity={layer === 'sunlight' || layer === 'drainage' ? 0.85 : 0.6}
-                      stroke="#a89e84" strokeWidth={0.08} strokeDasharray="0.35 0.2"
+                      stroke={isSelectedBed ? '#2a4a22' : '#a89e84'}
+                      strokeWidth={isSelectedBed ? 0.16 : 0.08}
+                      strokeDasharray={isSelectedBed ? undefined : '0.35 0.2'}
                     />
                     <text x={b.x + 0.4} y={b.y + 0.95} fontSize={0.8} fill="#6b6a58" fontFamily="Outfit, sans-serif" fontWeight={600}>
                       {b.name}
                     </text>
+                    {isSelectedBed && (
+                      <rect
+                        x={b.x + b.w - 0.5} y={b.y + b.h - 0.5} width={1} height={1} rx={0.15}
+                        fill="#2a4a22" stroke="#fbf8f2" strokeWidth={0.08}
+                      />
+                    )}
                   </g>
                 )
               })}
+
+              {/* bed being drawn */}
+              {editingBeds && bedDraft && (
+                <rect
+                  x={bedDraft.x} y={bedDraft.y} width={bedDraft.w} height={bedDraft.h} rx={0.4}
+                  fill="#2a4a22" fillOpacity={0.12}
+                  stroke="#2a4a22" strokeWidth={0.12} strokeDasharray="0.4 0.25"
+                />
+              )}
+              {editingBeds && pendingBed && !bedDraft && (
+                <rect
+                  x={pendingBed.x} y={pendingBed.y} width={pendingBed.w} height={pendingBed.h} rx={0.4}
+                  fill="#2a4a22" fillOpacity={0.12}
+                  stroke="#2a4a22" strokeWidth={0.12} strokeDasharray="0.4 0.25"
+                />
+              )}
 
               {/* spacing rings (US-103) */}
               {layer === 'spacing' &&
@@ -347,7 +565,7 @@ export default function MapScreen() {
                     key={p.instanceId}
                     cx={p.x} cy={p.y} r={r}
                     fill={p.plant.colors[season]}
-                    fillOpacity={layer === 'height' ? 0.72 : 0.95}
+                    fillOpacity={editingBeds ? 0.35 : layer === 'height' ? 0.72 : 0.95}
                     stroke={isSelected ? '#2b2b23' : conflicted ? '#a63d2f' : '#fbf8f2'}
                     strokeWidth={isSelected ? 0.14 : conflicted ? 0.12 : 0.07}
                     aria-label={`${p.plant.displayName}, ${heightCategory(p.plant.matureHeightIn)} height${p.plant.bloomStartMonth ? `, blooms ${bloomWindowLabel(p.plant)}` : ''}`}
@@ -467,6 +685,40 @@ export default function MapScreen() {
             </>
           )}
         </Card>
+      )}
+
+      {/* Bed editing panels (US-104) */}
+      {editingBeds && pendingBed && (
+        <BedForm
+          bed={pendingBed}
+          pending
+          onCreate={(data) => {
+            const id = addBed({ ...data, ...pendingBed })
+            setPendingBed(null)
+            setSelectedBedId(id)
+          }}
+          onClose={() => setPendingBed(null)}
+        />
+      )}
+      {editingBeds && !pendingBed && selectedBedId && beds.some((b) => b.id === selectedBedId) && (
+        <BedForm
+          key={selectedBedId}
+          bed={beds.find((b) => b.id === selectedBedId)!}
+          pending={false}
+          onChange={(patch) => updateBed(selectedBedId, patch)}
+          onDelete={() => {
+            deleteBed(selectedBedId)
+            setSelectedBedId(null)
+          }}
+          onClose={() => setSelectedBedId(null)}
+        />
+      )}
+      {editingBeds && !pendingBed && !selectedBedId && (
+        <p className="mt-4 text-sm text-ink-soft">
+          Drag on empty ground to draw a new bed. Tap an existing bed to rename it, set its soil,
+          sunlight, and drainage, move it, resize it, or delete it. Plants keep their spots — they
+          re-attach to whichever bed sits under them. Pan with two fingers or the zoom buttons while editing.
+        </p>
       )}
 
       {/* Mobile layers bottom sheet (US-803) */}
