@@ -1,0 +1,14 @@
+# Overlay that adds a Cloudflare Tunnel next to the app, so GardenOS is
+# reachable over HTTPS from anywhere without opening router ports:
+#
+#   CLOUDFLARE_TUNNEL_TOKEN=eyJ... docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --build
+#
+# (or put the token in a .env file next to this one — see README)
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: gardenos-tunnel
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    restart: unless-stopped
+    depends_on:
+      - gardenos

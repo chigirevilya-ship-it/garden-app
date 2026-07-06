@@ -70,3 +70,43 @@ produces `dist-demo/index.html` — a single self-contained file you can drop an
 
 Note: data lives in each browser's localStorage, so plants and tasks are per-device
 for now; the account-backed API from the system design doc is what will sync devices.
+
+### Make it reachable from anywhere (tunnel)
+
+The compose file has a tunnel overlay so the NAS never needs open router ports.
+
+**Cloudflare Tunnel** (free; needs a domain on Cloudflare):
+
+1. Cloudflare dashboard → Zero Trust → Networks → Tunnels → **Create a tunnel**
+   (Cloudflared connector). Copy the token from the Docker snippet it shows.
+2. Under the tunnel's **Public Hostname** tab, add e.g. `garden.yourdomain.com`
+   with service **HTTP** → `gardenos:80` (the app container's name and port on
+   the compose network).
+3. On the NAS:
+
+   ```bash
+   cp .env.example .env         # paste the token into .env
+   docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --build
+   ```
+
+   `https://garden.yourdomain.com` is live. To keep it private to you, add a
+   Cloudflare Access policy (Zero Trust → Access) in front of the hostname.
+
+   For a quick throwaway URL without a domain, skip the token setup and run:
+   `docker run --rm --network garden-app_default cloudflare/cloudflared:latest tunnel --url http://gardenos:80`
+   — it prints a random `*.trycloudflare.com` address (gone when stopped).
+
+**Tailscale Funnel** (free; no domain needed): with Tailscale installed on the
+NAS and the app running via `docker compose up -d`:
+
+```bash
+tailscale funnel --bg 8420
+```
+
+gives `https://<nas-name>.<tailnet>.ts.net`. Use `tailscale serve --bg 8420`
+instead if it should only be reachable from your own devices (tailnet-only).
+
+Since the tunnel serves HTTPS, the app can be added to a phone home screen
+from that URL. Heads-up if you expose it publicly: there's no login screen —
+but each visitor only sees their own browser's copy of the data (localStorage),
+never yours.
