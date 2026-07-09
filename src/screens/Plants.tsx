@@ -4,7 +4,8 @@ import { useGarden } from '../store'
 import { usePlantRows, type PlantRow } from '../lib/selectors'
 import { bloomWindowLabel, bloomsInMonth, formatHeight } from '../lib/plant'
 import { Button, Card, Chip, ColorSwatchStrip, EmptyState, Field, PageHeader, icons, inputClass } from '../components/ui'
-import type { PlantType, SunNeeds, WaterNeeds } from '../lib/types'
+import type { PlantType, SeasonalColors, SunNeeds, WaterNeeds } from '../lib/types'
+import { lookupPlantWithAI } from '../lib/aiLookup'
 
 const PLANT_TYPES: PlantType[] = ['perennial', 'annual', 'shrub', 'tree', 'vine', 'bulb', 'ground_cover', 'herb', 'grass', 'fern']
 
@@ -41,10 +42,12 @@ function AddPlantForm({ onClose }: { onClose: () => void }) {
   const species = useGarden((s) => s.species)
   const addSpecies = useGarden((s) => s.addSpecies)
   const addPlant = useGarden((s) => s.addPlant)
+  const aiApiKey = useGarden((s) => s.aiApiKey)
   const navigate = useNavigate()
 
   const [name, setName] = useState('')
   const [speciesId, setSpeciesId] = useState('')
+  const [scientificName, setScientificName] = useState('')
   const [plantType, setPlantType] = useState<PlantType>('perennial')
   const [heightIn, setHeightIn] = useState('')
   const [spacingIn, setSpacingIn] = useState('')
@@ -56,27 +59,59 @@ function AddPlantForm({ onClose }: { onClose: () => void }) {
   const [plantedOn, setPlantedOn] = useState('')
   const [notes, setNotes] = useState('')
 
+  const [aiColors, setAiColors] = useState<SeasonalColors | undefined>()
+  const [aiFilled, setAiFilled] = useState(false)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState('')
+
   const matches = useMemo(() => {
     const q = name.trim().toLowerCase()
     if (q.length < 2 || speciesId) return []
     return species.filter((sp) => sp.commonName.toLowerCase().includes(q)).slice(0, 5)
   }, [name, species, speciesId])
 
+  const runAiLookup = async () => {
+    setAiLoading(true)
+    setAiError('')
+    const result = await lookupPlantWithAI(name, scientificName, aiApiKey)
+    setAiLoading(false)
+    if (!result.ok) {
+      setAiError(result.error)
+      return
+    }
+    const d = result.data
+    setPlantType(d.plantType)
+    if (d.scientificName && !scientificName.trim()) setScientificName(d.scientificName)
+    if (d.matureHeightIn != null) setHeightIn(String(d.matureHeightIn))
+    if (d.spacingIn != null) setSpacingIn(String(d.spacingIn))
+    if (d.bloomStartMonth != null) setBloomStart(String(d.bloomStartMonth))
+    if (d.bloomEndMonth != null) setBloomEnd(String(d.bloomEndMonth))
+    if (d.waterNeeds) setWater(d.waterNeeds)
+    if (d.sunNeeds) setSun(d.sunNeeds)
+    setAiColors(d.colors)
+    setAiFilled(true)
+  }
+
   const submit = () => {
     if (!name.trim() && !speciesId) return
     let sid = speciesId || undefined
     if (!sid) {
       // fully custom plant: create a user-scoped species from the form
-      sid = addSpecies({
-        commonName: name.trim(),
-        plantType,
-        matureHeightIn: heightIn ? Number(heightIn) : undefined,
-        spacingIn: spacingIn ? Number(spacingIn) : undefined,
-        bloomStartMonth: bloomStart ? Number(bloomStart) : undefined,
-        bloomEndMonth: bloomEnd ? Number(bloomEnd) : undefined,
-        waterNeeds: water,
-        sunNeeds: sun,
-      })
+      sid = addSpecies(
+        {
+          commonName: name.trim(),
+          scientificName: scientificName.trim() || undefined,
+          plantType,
+          matureHeightIn: heightIn ? Number(heightIn) : undefined,
+          spacingIn: spacingIn ? Number(spacingIn) : undefined,
+          bloomStartMonth: bloomStart ? Number(bloomStart) : undefined,
+          bloomEndMonth: bloomEnd ? Number(bloomEnd) : undefined,
+          waterNeeds: water,
+          sunNeeds: sun,
+          defaultColors: aiColors,
+        },
+        aiFilled ? 'ai' : 'user',
+      )
     }
     const chosen = species.find((sp) => sp.id === speciesId)
     const id = addPlant({
@@ -135,6 +170,48 @@ function AddPlantForm({ onClose }: { onClose: () => void }) {
           )}
           {speciesId && <p className="mt-1 text-xs text-garden">✓ Linked to reference data — care details prefill from it.</p>}
         </div>
+
+        {!speciesId && (
+          <div className="sm:col-span-2 lg:col-span-1">
+            <Field label="Scientific name (optional)">
+              <input
+                className={inputClass}
+                value={scientificName}
+                onChange={(e) => setScientificName(e.target.value)}
+                placeholder="e.g. Hydrangea macrophylla"
+              />
+            </Field>
+            <div className="mt-1.5 flex items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                className="!min-h-8 !px-2.5 text-xs"
+                disabled={name.trim().length < 2 || aiLoading}
+                onClick={runAiLookup}
+              >
+                {aiLoading ? 'Looking up…' : '✨ Look up with AI'}
+              </Button>
+              {aiFilled && !aiLoading && (
+                <span className="flex items-center gap-1.5 text-xs text-garden">
+                  ✓ Filled from AI — review before saving
+                  {aiColors && <ColorSwatchStrip colors={aiColors} />}
+                </span>
+              )}
+            </div>
+            {aiError && (
+              <p className="mt-1 text-xs text-red-urgent">
+                {aiError}
+                {aiError.includes('Settings') && (
+                  <>
+                    {' '}
+                    <Link to="/settings" className="underline">Open Settings</Link>
+                  </>
+                )}
+              </p>
+            )}
+          </div>
+        )}
+
         <Field label="Type">
           <select className={inputClass} value={plantType} onChange={(e) => setPlantType(e.target.value as PlantType)} disabled={!!speciesId}>
             {PLANT_TYPES.map((pt) => (

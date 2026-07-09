@@ -11,8 +11,13 @@ function doyToInput(doy: number): string {
 export default function Settings() {
   const garden = useGarden((s) => s.garden)
   const updateGarden = useGarden((s) => s.updateGarden)
+  const aiApiKey = useGarden((s) => s.aiApiKey)
+  const setAiApiKey = useGarden((s) => s.setAiApiKey)
   const rows = usePlantRows()
   const [saved, setSaved] = useState(false)
+  const [keyInput, setKeyInput] = useState(aiApiKey)
+  const [keySaved, setKeySaved] = useState(false)
+  const [showKey, setShowKey] = useState(false)
 
   const [form, setForm] = useState({
     name: garden.name,
@@ -122,6 +127,39 @@ export default function Settings() {
         </Card>
 
         <div className="flex flex-col gap-5">
+          <Card className="p-5">
+            <h2 className="mb-1 font-display text-2xl font-semibold text-garden">AI Plant Lookup</h2>
+            <p className="mb-3 text-xs text-ink-soft">
+              Powers the "Look up with AI" button when adding a plant. This app has no backend, so your
+              key is saved only in this browser's storage and calls the Anthropic API directly — visible
+              in this browser's network requests, never sent anywhere else. Get a key at{' '}
+              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" className="text-garden underline">
+                console.anthropic.com
+              </a>.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <input
+                type={showKey ? 'text' : 'password'}
+                className={`${inputClass} max-w-xs`}
+                placeholder="sk-ant-…"
+                value={keyInput}
+                onChange={(e) => { setKeyInput(e.target.value); setKeySaved(false) }}
+                autoComplete="off"
+              />
+              <Button variant="ghost" className="!min-h-11" onClick={() => setShowKey((v) => !v)}>
+                {showKey ? 'Hide' : 'Show'}
+              </Button>
+              <Button onClick={() => { setAiApiKey(keyInput); setKeySaved(true) }}>Save key</Button>
+              {aiApiKey && (
+                <Button variant="danger" onClick={() => { setAiApiKey(''); setKeyInput(''); setKeySaved(false) }}>
+                  Remove
+                </Button>
+              )}
+            </div>
+            {keySaved && <p className="mt-2 text-sm text-garden">Saved ✓</p>}
+            <p className="mt-2 text-xs text-ink-soft">{aiApiKey ? 'A key is set in this browser.' : 'No key set — AI lookup is disabled.'}</p>
+          </Card>
+
           <Card className="p-5">
             <h2 className="mb-3 font-display text-2xl font-semibold text-garden">Export</h2>
             <p className="mb-4 text-sm text-ink-soft">Share your garden with a nursery, print it, or back it up.</p>

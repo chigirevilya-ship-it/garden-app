@@ -44,15 +44,18 @@ interface GardenState {
   journal: JournalEntry[]
   inventory: InventoryItem[]
   companionRules: CompanionRule[]
+  /** Anthropic API key for AI plant lookup (US-701-style). Stored in this browser only. */
+  aiApiKey: string
 
   updateGarden: (patch: Partial<Garden>) => void
+  setAiApiKey: (key: string) => void
 
   addBed: (bed: Omit<Bed, 'id'>) => string
   updateBed: (id: string, patch: Partial<Omit<Bed, 'id'>>) => void
   deleteBed: (id: string) => void
 
   addPlant: (instance: Omit<PlantInstance, 'id' | 'status' | 'overrides'> & { overrides?: Overrides }) => string
-  addSpecies: (species: Omit<PlantSpecies, 'id' | 'source'>) => string
+  addSpecies: (species: Omit<PlantSpecies, 'id' | 'source'>, source?: PlantSpecies['source']) => string
   updateInstance: (id: string, patch: Partial<PlantInstance>) => void
   setOverride: (id: string, key: keyof Overrides, value: Overrides[keyof Overrides]) => void
   clearOverride: (id: string, key: keyof Overrides) => void
@@ -106,8 +109,10 @@ export const useGarden = create<GardenState>()(
       journal: seedJournal,
       inventory: seedInventory,
       companionRules: seedCompanionRules,
+      aiApiKey: '',
 
       updateGarden: (patch) => set((s) => ({ garden: { ...s.garden, ...patch } })),
+      setAiApiKey: (key) => set({ aiApiKey: key.trim() }),
 
       addBed: (bed) => {
         const id = uid('bed')
@@ -139,9 +144,9 @@ export const useGarden = create<GardenState>()(
         return id
       },
 
-      addSpecies: (data) => {
+      addSpecies: (data, source = 'user') => {
         const id = uid('sp')
-        set((s) => ({ species: [...s.species, { ...data, id, source: 'user' }] }))
+        set((s) => ({ species: [...s.species, { ...data, id, source }] }))
         return id
       },
 
