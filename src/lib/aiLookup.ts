@@ -35,23 +35,25 @@ const PLANT_TYPES: PlantType[] = [
   'perennial', 'annual', 'shrub', 'tree', 'vine', 'bulb', 'ground_cover', 'herb', 'grass', 'fern',
 ]
 
+const nullable = (schema: Record<string, unknown>) => ({ anyOf: [schema, { type: 'null' }] })
+
 const RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
     commonName: { type: 'string' },
-    scientificName: { type: ['string', 'null'] },
+    scientificName: nullable({ type: 'string' }),
     plantType: { type: 'string', enum: PLANT_TYPES },
-    matureHeightIn: { type: ['number', 'null'] },
-    matureSpreadIn: { type: ['number', 'null'] },
-    spacingIn: { type: ['number', 'null'] },
-    bloomStartMonth: { type: ['integer', 'null'] },
-    bloomEndMonth: { type: ['integer', 'null'] },
+    matureHeightIn: nullable({ type: 'number' }),
+    matureSpreadIn: nullable({ type: 'number' }),
+    spacingIn: nullable({ type: 'number' }),
+    bloomStartMonth: nullable({ type: 'integer' }),
+    bloomEndMonth: nullable({ type: 'integer' }),
     pruneMonths: { type: 'array', items: { type: 'integer' } },
-    fertilizeIntervalWeeks: { type: ['integer', 'null'] },
-    waterNeeds: { type: ['string', 'null'], enum: ['low', 'medium', 'high', null] },
-    sunNeeds: { type: ['string', 'null'], enum: ['full', 'partial', 'shade', null] },
+    fertilizeIntervalWeeks: nullable({ type: 'integer' }),
+    waterNeeds: nullable({ type: 'string', enum: ['low', 'medium', 'high'] }),
+    sunNeeds: nullable({ type: 'string', enum: ['full', 'partial', 'shade'] }),
     frostTender: { type: 'boolean' },
-    hardinessMinZone: { type: ['string', 'null'] },
+    hardinessMinZone: nullable({ type: 'string' }),
     colors: {
       type: 'object',
       properties: {
