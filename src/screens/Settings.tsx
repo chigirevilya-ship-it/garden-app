@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useGarden } from '../store'
+import { useAuth, useGarden, usePrefs } from '../store'
 import { usePlantRows } from '../lib/selectors'
 import { MONTH_NAMES, dateFromDoy, formatDate, formatHeight, parseIso } from '../lib/plant'
 import { Button, Card, Field, PageHeader, inputClass } from '../components/ui'
@@ -8,11 +8,94 @@ function doyToInput(doy: number): string {
   return dateFromDoy(new Date().getFullYear(), doy).slice(5) // MM-DD
 }
 
+function GardensCard() {
+  const gardens = useAuth((s) => s.gardens)
+  const activeGardenId = useAuth((s) => s.activeGardenId)
+  const selectGarden = useAuth((s) => s.selectGarden)
+  const closeGarden = useAuth((s) => s.closeGarden)
+  const deleteGarden = useAuth((s) => s.deleteGarden)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+
+  return (
+    <Card className="p-5">
+      <h2 className="mb-3 font-display text-2xl font-semibold text-garden">Gardens</h2>
+      <div className="flex flex-col gap-2">
+        {gardens.map((g) => (
+          <div key={g.id} className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-parchment px-3">
+            <span className="min-w-0 truncate text-sm font-medium">
+              {g.name}
+              {g.id === activeGardenId && <span className="ml-2 text-xs text-garden">(open)</span>}
+            </span>
+            <span className="flex shrink-0 items-center gap-2">
+              {g.id !== activeGardenId && (
+                <button className="cursor-pointer text-xs text-garden underline" onClick={() => void selectGarden(g.id)}>
+                  Open
+                </button>
+              )}
+              {confirmDelete === g.id ? (
+                <>
+                  <button
+                    className="cursor-pointer text-xs font-semibold text-red-urgent underline"
+                    onClick={() => {
+                      setConfirmDelete(null)
+                      void deleteGarden(g.id)
+                    }}
+                  >
+                    Really delete?
+                  </button>
+                  <button className="cursor-pointer text-xs text-ink-soft underline" onClick={() => setConfirmDelete(null)}>
+                    Keep
+                  </button>
+                </>
+              ) : (
+                <button className="cursor-pointer text-xs text-ink-soft underline hover:text-red-urgent" onClick={() => setConfirmDelete(g.id)}>
+                  Delete
+                </button>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+      <Button variant="secondary" className="mt-3" onClick={closeGarden}>
+        ＋ New garden / switch
+      </Button>
+      <p className="mt-2 text-xs text-ink-soft">Deleting a garden permanently removes its plants, tasks, and journal.</p>
+    </Card>
+  )
+}
+
+function AccountCard() {
+  const user = useAuth((s) => s.user)
+  const mode = useAuth((s) => s.mode)
+  const logout = useAuth((s) => s.logout)
+
+  return (
+    <Card className="p-5">
+      <h2 className="mb-3 font-display text-2xl font-semibold text-garden">Account</h2>
+      {mode === 'local' ? (
+        <p className="text-sm text-ink-soft">
+          Demo mode — no GardenOS server was found, so gardens live in this browser only. Run the
+          server (see the README) for accounts and cross-device access.
+        </p>
+      ) : (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm">
+            Signed in as <strong>{user?.username}</strong>
+          </p>
+          <Button variant="secondary" onClick={() => void logout()}>
+            Sign out
+          </Button>
+        </div>
+      )}
+    </Card>
+  )
+}
+
 export default function Settings() {
   const garden = useGarden((s) => s.garden)
   const updateGarden = useGarden((s) => s.updateGarden)
-  const aiApiKey = useGarden((s) => s.aiApiKey)
-  const setAiApiKey = useGarden((s) => s.setAiApiKey)
+  const aiApiKey = usePrefs((s) => s.aiApiKey)
+  const setAiApiKey = usePrefs((s) => s.setAiApiKey)
   const rows = usePlantRows()
   const [saved, setSaved] = useState(false)
   const [keyInput, setKeyInput] = useState(aiApiKey)
@@ -127,12 +210,16 @@ export default function Settings() {
         </Card>
 
         <div className="flex flex-col gap-5">
+          <GardensCard />
+          <AccountCard />
           <Card className="p-5">
             <h2 className="mb-1 font-display text-2xl font-semibold text-garden">AI Plant Lookup</h2>
             <p className="mb-3 text-xs text-ink-soft">
-              Powers the "Look up with AI" button when adding a plant. This app has no backend, so your
-              key is saved only in this browser's storage and calls the Anthropic API directly — visible
-              in this browser's network requests, never sent anywhere else. Get a key at{' '}
+              Powers the "Look up with AI" button when adding a plant. Preferred setup: set
+              ANTHROPIC_API_KEY on the GardenOS server (.env on the NAS) — then every user gets AI
+              lookup with no key here. The field below is a per-browser fallback used only when the
+              server has no key: it's saved in this browser's storage and calls the Anthropic API
+              directly. Get a key at{' '}
               <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" className="text-garden underline">
                 console.anthropic.com
               </a>.

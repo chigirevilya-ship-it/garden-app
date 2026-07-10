@@ -1,14 +1,22 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { PlantType, SeasonalColors, SunNeeds, WaterNeeds } from './types'
+import { buildLookupBody } from './aiRequest.mjs'
+import { snapToPalette } from './palette'
+import type { PlantType, SeasonalColors, SunNeeds, TaskKind, WaterNeeds } from './types'
 
 /**
- * Client-side AI plant lookup (US-701-style). Calls the Anthropic API directly
- * from the browser with a user-supplied key (Settings). There is no backend in
- * this deployment, so the key lives in this browser's localStorage and is
- * visible in devtools/network — acceptable for a personal, single-user
- * instance; a shared/public deployment should proxy this through a backend
- * instead (see system design §7, AI Gateway).
+ * AI plant lookup. Preferred path: the GardenOS server proxies the call with
+ * its own ANTHROPIC_API_KEY (set in the server's environment) — no key in the
+ * browser. Fallback path (no server key configured, or running the static
+ * demo build): call the Anthropic API directly with the key from Settings.
  */
+export interface AiSuggestedTask {
+  title: string
+  kind: TaskKind
+  month: number
+  day?: number
+  repeat: 'yearly' | 'once'
+}
+
 export interface AiPlantLookup {
   commonName: string
   scientificName?: string
@@ -25,118 +33,47 @@ export interface AiPlantLookup {
   frostTender?: boolean
   hardinessMinZone?: string
   colors: SeasonalColors
+  suggestedTasks: AiSuggestedTask[]
 }
 
 export type AiLookupResult =
   | { ok: true; data: AiPlantLookup }
   | { ok: false; error: string }
 
-const PLANT_TYPES: PlantType[] = [
-  'perennial', 'annual', 'shrub', 'tree', 'vine', 'bulb', 'ground_cover', 'herb', 'grass', 'fern',
-]
+interface RawLookup {
+  commonName: string
+  scientificName: string | null
+  plantType: PlantType
+  matureHeightIn: number | null
+  matureSpreadIn: number | null
+  spacingIn: number | null
+  bloomStartMonth: number | null
+  bloomEndMonth: number | null
+  pruneMonths: number[]
+  fertilizeIntervalWeeks: number | null
+  waterNeeds: WaterNeeds | null
+  sunNeeds: SunNeeds | null
+  frostTender: boolean
+  hardinessMinZone: string | null
+  colors: SeasonalColors
+  suggestedTasks: { title: string; kind: TaskKind; month: number; day: number | null; repeat: 'yearly' | 'once' }[]
+}
 
-const nullable = (schema: Record<string, unknown>) => ({ anyOf: [schema, { type: 'null' }] })
+interface AnthropicMessageShape {
+  stop_reason?: string | null
+  content?: { type: string; text?: string }[]
+}
 
-const RESPONSE_SCHEMA = {
-  type: 'object',
-  properties: {
-    commonName: { type: 'string' },
-    scientificName: nullable({ type: 'string' }),
-    plantType: { type: 'string', enum: PLANT_TYPES },
-    matureHeightIn: nullable({ type: 'number' }),
-    matureSpreadIn: nullable({ type: 'number' }),
-    spacingIn: nullable({ type: 'number' }),
-    bloomStartMonth: nullable({ type: 'integer' }),
-    bloomEndMonth: nullable({ type: 'integer' }),
-    pruneMonths: { type: 'array', items: { type: 'integer' } },
-    fertilizeIntervalWeeks: nullable({ type: 'integer' }),
-    waterNeeds: nullable({ type: 'string', enum: ['low', 'medium', 'high'] }),
-    sunNeeds: nullable({ type: 'string', enum: ['full', 'partial', 'shade'] }),
-    frostTender: { type: 'boolean' },
-    hardinessMinZone: nullable({ type: 'string' }),
-    colors: {
-      type: 'object',
-      properties: {
-        spring: { type: 'string' },
-        summer: { type: 'string' },
-        fall: { type: 'string' },
-        winter: { type: 'string' },
-      },
-      required: ['spring', 'summer', 'fall', 'winter'],
-      additionalProperties: false,
-    },
-  },
-  required: [
-    'commonName', 'scientificName', 'plantType', 'matureHeightIn', 'matureSpreadIn', 'spacingIn',
-    'bloomStartMonth', 'bloomEndMonth', 'pruneMonths', 'fertilizeIntervalWeeks', 'waterNeeds',
-    'sunNeeds', 'frostTender', 'hardinessMinZone', 'colors',
-  ],
-  additionalProperties: false,
-} as const
-
-export async function lookupPlantWithAI(
-  commonName: string,
-  scientificName: string,
-  apiKey: string,
-): Promise<AiLookupResult> {
-  if (!apiKey.trim()) {
-    return { ok: false, error: 'No Anthropic API key set. Add one in Settings to use AI lookup.' }
+function parseLookupMessage(message: AnthropicMessageShape): AiLookupResult {
+  if (message.stop_reason === 'refusal') {
+    return { ok: false, error: 'The AI declined this request. Try rephrasing the plant name.' }
   }
-
-  const client = new Anthropic({ apiKey: apiKey.trim(), dangerouslyAllowBrowser: true })
-  const nameForPrompt = scientificName.trim()
-    ? `${commonName.trim()} (${scientificName.trim()})`
-    : commonName.trim()
-
+  const textBlock = message.content?.find((b) => b.type === 'text' && typeof b.text === 'string')
+  if (!textBlock?.text) {
+    return { ok: false, error: 'AI response had no usable content.' }
+  }
   try {
-    const response = await client.messages.create({
-      model: 'claude-opus-4-8',
-      max_tokens: 1024,
-      output_config: {
-        effort: 'low',
-        format: { type: 'json_schema', schema: RESPONSE_SCHEMA },
-      },
-      messages: [
-        {
-          role: 'user',
-          content:
-            `Provide reference horticultural data for the garden plant "${nameForPrompt}" for a home ` +
-            `gardening app. Use typical, well-established values for this species (or its genus if the ` +
-            `exact cultivar is obscure) — reasonable general knowledge is fine, but do not invent overly ` +
-            `specific unfounded numbers. Heights/spacing/spacing are in inches. Bloom and prune months are ` +
-            `1-12 (northern-hemisphere temperate garden default). Set frostTender true only if the plant is ` +
-            `killed or badly damaged by frost. For "colors", give one hex color (#RRGGBB) per season ` +
-            `representing this plant's dominant visible color that season (foliage and/or bloom) in a ` +
-            `typical temperate garden — if it's evergreen or has no strong seasonal change, use closely ` +
-            `related muted variations rather than four identical values. Use null for any field that ` +
-            `genuinely doesn't apply or can't be reasonably estimated (e.g. bloom months for a plant grown ` +
-            `only for foliage).`,
-        },
-      ],
-    })
-
-    if (response.stop_reason === 'refusal') {
-      return { ok: false, error: 'The AI declined this request. Try rephrasing the plant name.' }
-    }
-
-    const textBlock = response.content.find((b) => b.type === 'text')
-    if (!textBlock || textBlock.type !== 'text') {
-      return { ok: false, error: 'AI response had no usable content.' }
-    }
-
-    const parsed = JSON.parse(textBlock.text) as AiPlantLookup & {
-      scientificName: string | null
-      matureHeightIn: number | null
-      matureSpreadIn: number | null
-      spacingIn: number | null
-      bloomStartMonth: number | null
-      bloomEndMonth: number | null
-      fertilizeIntervalWeeks: number | null
-      waterNeeds: WaterNeeds | null
-      sunNeeds: SunNeeds | null
-      hardinessMinZone: string | null
-    }
-
+    const parsed = JSON.parse(textBlock.text) as RawLookup
     return {
       ok: true,
       data: {
@@ -154,9 +91,59 @@ export async function lookupPlantWithAI(
         sunNeeds: parsed.sunNeeds ?? undefined,
         frostTender: parsed.frostTender,
         hardinessMinZone: parsed.hardinessMinZone ?? undefined,
-        colors: parsed.colors,
+        colors: {
+          spring: snapToPalette(parsed.colors.spring),
+          summer: snapToPalette(parsed.colors.summer),
+          fall: snapToPalette(parsed.colors.fall),
+          winter: snapToPalette(parsed.colors.winter),
+        },
+        suggestedTasks: (parsed.suggestedTasks ?? [])
+          .filter((t) => t.title && t.month >= 1 && t.month <= 12)
+          .slice(0, 6)
+          .map((t) => ({ title: t.title, kind: t.kind, month: t.month, day: t.day ?? undefined, repeat: t.repeat })),
       },
     }
+  } catch {
+    return { ok: false, error: 'AI response could not be parsed. Try again.' }
+  }
+}
+
+/** Returns null if the server has no AI key configured (fall back to browser key). */
+async function lookupViaServer(commonName: string, scientificName: string): Promise<AiLookupResult | null> {
+  let res: Response
+  try {
+    res = await fetch('/api/ai/lookup', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ commonName, scientificName }),
+    })
+  } catch {
+    return null // no server at all (static build) — fall back
+  }
+  if (res.status === 501 || res.status === 404) return null // server has no key / no API
+  const body = (await res.json().catch(() => ({}))) as { message?: AnthropicMessageShape; error?: string }
+  if (!res.ok) return { ok: false, error: body.error ?? `AI lookup failed (${res.status}).` }
+  if (!body.message) return { ok: false, error: 'AI response had no usable content.' }
+  return parseLookupMessage(body.message)
+}
+
+async function lookupViaBrowser(
+  commonName: string,
+  scientificName: string,
+  apiKey: string,
+): Promise<AiLookupResult> {
+  if (!apiKey.trim()) {
+    return {
+      ok: false,
+      error: 'AI lookup is not configured — set ANTHROPIC_API_KEY on the server, or add a key in Settings.',
+    }
+  }
+  const client = new Anthropic({ apiKey: apiKey.trim(), dangerouslyAllowBrowser: true })
+  try {
+    const body = buildLookupBody(commonName, scientificName)
+    const response = await client.messages.create(body as unknown as Anthropic.MessageCreateParamsNonStreaming)
+    return parseLookupMessage(response as AnthropicMessageShape)
   } catch (err) {
     if (err instanceof Anthropic.AuthenticationError) {
       return { ok: false, error: 'Invalid Anthropic API key. Check the key in Settings.' }
@@ -170,6 +157,16 @@ export async function lookupPlantWithAI(
     if (err instanceof Anthropic.APIError) {
       return { ok: false, error: `AI lookup failed: ${err.message}` }
     }
-    return { ok: false, error: 'AI response could not be parsed. Try again.' }
+    return { ok: false, error: 'AI lookup failed unexpectedly. Try again.' }
   }
+}
+
+export async function lookupPlantWithAI(
+  commonName: string,
+  scientificName: string,
+  browserApiKey: string,
+): Promise<AiLookupResult> {
+  const viaServer = await lookupViaServer(commonName, scientificName)
+  if (viaServer) return viaServer
+  return lookupViaBrowser(commonName, scientificName, browserApiKey)
 }

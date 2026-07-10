@@ -2,6 +2,7 @@ import type {
   Bed,
   CompanionRule,
   Garden,
+  GardenData,
   InventoryItem,
   JournalEntry,
   Placement,
@@ -10,6 +11,7 @@ import type {
   Task,
 } from '../lib/types'
 import { addDays, today } from '../lib/plant'
+import { generateTasks, mergeGeneratedTasks } from '../lib/taskEngine'
 
 export const seedGarden: Garden = {
   name: 'Maple Street Garden',
@@ -249,3 +251,46 @@ export const seedInventory: InventoryItem[] = [
   { id: 'inv-6', name: 'Carrot ‘Nantes’ seeds', itemType: 'seed', quantity: 1, lowThreshold: 2, sourceName: 'Seed Savers Exchange', sourceUrl: 'https://example.com/carrots' },
   { id: 'inv-7', name: 'Jute twine', itemType: 'other', quantity: 4, lowThreshold: 1 },
 ]
+
+/** Full sample-garden state, used when creating a garden with sample data. */
+export function buildSeedState(name?: string): GardenData {
+  const gardenName = name?.trim() || seedGarden.name
+  return {
+    garden: { ...seedGarden, name: gardenName },
+    beds: seedBeds,
+    species: seedSpecies,
+    instances: seedInstances,
+    placements: seedPlacements,
+    tasks: mergeGeneratedTasks(
+      seedCustomTasks,
+      generateTasks(seedInstances, seedSpecies, seedGarden, today()),
+    ),
+    journal: seedJournal,
+    inventory: seedInventory,
+    companionRules: seedCompanionRules,
+  }
+}
+
+/** Blank garden: no plants or beds, but the reference catalog and companion rules stay available. */
+export function buildEmptyState(name: string): GardenData {
+  return {
+    garden: {
+      name: name.trim() || 'My Garden',
+      zipCode: '',
+      usdaZone: '7a',
+      lastFrostDoy: 105,
+      firstFrostDoy: 294,
+      widthUnits: 40,
+      heightUnits: 30,
+      units: 'imperial',
+    },
+    beds: [],
+    species: seedSpecies,
+    instances: [],
+    placements: [],
+    tasks: [],
+    journal: [],
+    inventory: [],
+    companionRules: seedCompanionRules,
+  }
+}

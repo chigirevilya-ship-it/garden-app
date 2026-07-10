@@ -137,7 +137,9 @@ export default function MapScreen() {
   const garden = useGarden((s) => s.garden)
   const beds = useGarden((s) => s.beds)
   const rules = useGarden((s) => s.companionRules)
+  const species = useGarden((s) => s.species)
   const placePlant = useGarden((s) => s.placePlant)
+  const addPlant = useGarden((s) => s.addPlant)
   const removePlacement = useGarden((s) => s.removePlacement)
   const addBed = useGarden((s) => s.addBed)
   const updateBed = useGarden((s) => s.updateBed)
@@ -185,8 +187,15 @@ export default function MapScreen() {
 
   const unplaced = rows.filter((r) => r.instance.status === 'active' && !r.placed)
   const placeCandidates = unplaced.filter((r) =>
-    r.plant.displayName.toLowerCase().includes(placeSearch.toLowerCase()),
+    `${r.plant.displayName} ${r.plant.scientificName ?? ''}`.toLowerCase().includes(placeSearch.toLowerCase()),
   )
+  const catalogCandidates = useMemo(() => {
+    const q = placeSearch.trim().toLowerCase()
+    return species
+      .filter((sp) => !q || sp.commonName.toLowerCase().includes(q) || (sp.scientificName ?? '').toLowerCase().includes(q))
+      .sort((a, b) => a.commonName.localeCompare(b.commonName))
+      .slice(0, 8)
+  }, [species, placeSearch])
 
   // ---------- pan / zoom / tap ----------
   const svgRef = useRef<SVGSVGElement>(null)
@@ -653,37 +662,62 @@ export default function MapScreen() {
             </h2>
             <Button variant="ghost" onClick={() => setPlacingAt(null)}>{icons.x('h-4 w-4')}</Button>
           </div>
-          {unplaced.length === 0 ? (
-            <p className="text-sm text-ink-soft">
-              Every plant in your database is already on the map.{' '}
-              <Link to="/plants" className="text-garden underline">Add a new plant</Link> first, then place it here.
+          <input
+            className={`${inputClass} mb-3 max-w-sm`}
+            placeholder="Search catalog and unplaced plants…"
+            value={placeSearch}
+            onChange={(e) => setPlaceSearch(e.target.value)}
+            autoFocus
+          />
+          <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
+            {placeCandidates.length > 0 && (
+              <p className="px-3 pt-1 text-xs font-semibold tracking-wide text-ink-soft uppercase">
+                In your garden, not yet placed
+              </p>
+            )}
+            {placeCandidates.map((r) => (
+              <button
+                key={r.instance.id}
+                onClick={() => confirmPlace(r.instance.id)}
+                className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-lg px-3 text-left hover:bg-parchment-dark"
+              >
+                <span className="text-sm font-medium">{r.plant.displayName}</span>
+                <span className="text-xs text-ink-soft">
+                  {formatHeight(r.plant.matureHeightIn)} · spacing {r.plant.spacingIn ?? '—'}″
+                </span>
+              </button>
+            ))}
+            <p className="px-3 pt-1 text-xs font-semibold tracking-wide text-ink-soft uppercase">
+              From the catalog (plants a new one)
             </p>
-          ) : (
-            <>
-              <input
-                className={`${inputClass} mb-3 max-w-sm`}
-                placeholder="Search your unplaced plants…"
-                value={placeSearch}
-                onChange={(e) => setPlaceSearch(e.target.value)}
-                autoFocus
-              />
-              <div className="flex max-h-56 flex-col gap-1 overflow-y-auto">
-                {placeCandidates.map((r) => (
-                  <button
-                    key={r.instance.id}
-                    onClick={() => confirmPlace(r.instance.id)}
-                    className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-lg px-3 text-left hover:bg-parchment-dark"
-                  >
-                    <span className="text-sm font-medium">{r.plant.displayName}</span>
-                    <span className="text-xs text-ink-soft">
-                      {formatHeight(r.plant.matureHeightIn)} · spacing {r.plant.spacingIn ?? '—'}″
-                    </span>
-                  </button>
-                ))}
-                {placeCandidates.length === 0 && <p className="px-3 py-2 text-sm text-ink-soft">No matches.</p>}
-              </div>
-            </>
-          )}
+            {catalogCandidates.map((sp) => (
+              <button
+                key={sp.id}
+                onClick={() => {
+                  // placing straight from the catalog creates a fresh instance here
+                  const instanceId = addPlant({ speciesId: sp.id })
+                  if (placingAt) placePlant(instanceId, placingAt.x, placingAt.y)
+                  setPlacingAt(null)
+                  setPlaceSearch('')
+                  setSelected(instanceId)
+                }}
+                className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-lg px-3 text-left hover:bg-parchment-dark"
+              >
+                <span className="min-w-0 text-sm font-medium">
+                  {sp.commonName}
+                  {sp.scientificName && <span className="ml-1.5 text-xs font-normal text-ink-soft italic">{sp.scientificName}</span>}
+                </span>
+                <span className="shrink-0 text-xs text-ink-soft">
+                  {formatHeight(sp.matureHeightIn)} · spacing {sp.spacingIn ?? '—'}″
+                </span>
+              </button>
+            ))}
+            {catalogCandidates.length === 0 && placeCandidates.length === 0 && (
+              <p className="px-3 py-2 text-sm text-ink-soft">
+                No matches — <Link to="/plants" className="text-garden underline">add it to your catalog</Link> first.
+              </p>
+            )}
+          </div>
         </Card>
       )}
 

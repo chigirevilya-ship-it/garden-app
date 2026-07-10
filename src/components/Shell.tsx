@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { icons } from './ui'
+import { useAuth } from '../store'
+import { icons, inputClass } from './ui'
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: icons.home },
@@ -26,17 +27,51 @@ function Wordmark() {
   )
 }
 
+const NEW_GARDEN = '__new__'
+
+function GardenSwitcher({ className = '' }: { className?: string }) {
+  const gardens = useAuth((s) => s.gardens)
+  const activeGardenId = useAuth((s) => s.activeGardenId)
+  const selectGarden = useAuth((s) => s.selectGarden)
+  const closeGarden = useAuth((s) => s.closeGarden)
+
+  return (
+    <select
+      aria-label="Switch garden"
+      className={`${inputClass} !min-h-9 cursor-pointer text-sm font-medium ${className}`}
+      value={activeGardenId ?? ''}
+      onChange={(e) => {
+        if (e.target.value === NEW_GARDEN) closeGarden() // back to the garden gate with the create form
+        else void selectGarden(e.target.value)
+      }}
+    >
+      {gardens.map((g) => (
+        <option key={g.id} value={g.id}>
+          {g.name}
+        </option>
+      ))}
+      <option value={NEW_GARDEN}>＋ New / switch garden…</option>
+    </select>
+  )
+}
+
 export default function Shell() {
   const [moreOpen, setMoreOpen] = useState(false)
   const location = useLocation()
   const moreActive = MORE_ITEMS.some((item) => location.pathname.startsWith(item.to))
+  const user = useAuth((s) => s.user)
+  const mode = useAuth((s) => s.mode)
+  const logout = useAuth((s) => s.logout)
 
   return (
     <div className="min-h-dvh bg-parchment">
       {/* Desktop sidebar (≥1024px) */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-line bg-cream px-4 py-6 lg:flex">
         <Wordmark />
-        <nav className="mt-8 flex flex-col gap-1">
+        <div className="mt-5 px-1">
+          <GardenSwitcher className="w-full" />
+        </div>
+        <nav className="mt-4 flex flex-col gap-1">
           {NAV.map(({ to, label, icon }) => (
             <NavLink
               key={to}
@@ -53,9 +88,18 @@ export default function Shell() {
             </NavLink>
           ))}
         </nav>
-        <p className="mt-auto px-3 text-xs text-ink-soft/70">
-          Maple Street Garden · Zone 7a
-        </p>
+        <div className="mt-auto px-3 text-xs text-ink-soft/70">
+          {user ? (
+            <p className="flex items-center justify-between gap-2">
+              <span className="truncate">{user.username}</span>
+              <button className="cursor-pointer underline hover:text-ink" onClick={() => void logout()}>
+                Sign out
+              </button>
+            </p>
+          ) : (
+            <p>{mode === 'local' ? 'Demo mode — this browser only' : ''}</p>
+          )}
+        </div>
       </aside>
 
       {/* Content */}
@@ -105,6 +149,9 @@ export default function Shell() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-line" />
+            <div className="mb-3 px-1">
+              <GardenSwitcher className="w-full" />
+            </div>
             {MORE_ITEMS.map(({ to, label, icon }) => (
               <NavLink
                 key={to}
@@ -120,6 +167,15 @@ export default function Shell() {
                 {label}
               </NavLink>
             ))}
+            {user && (
+              <button
+                className="flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-lg px-3 text-sm font-medium text-ink-soft hover:bg-parchment-dark"
+                onClick={() => void logout()}
+              >
+                {icons.x('h-5 w-5')}
+                Sign out ({user.username})
+              </button>
+            )}
           </div>
         </div>
       )}

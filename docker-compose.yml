@@ -5,3 +5,10 @@ services:
     ports:
       - "8420:80"
     restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    environment:
+      # Optional: enables server-side AI plant lookup for all users
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # Set to "false" once everyone has an account
+      - REGISTRATION_OPEN=${REGISTRATION_OPEN:-true}

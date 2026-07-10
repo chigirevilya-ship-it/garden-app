@@ -1,4 +1,4 @@
-import type { Garden, PlantInstance, PlantSpecies, Task } from './types'
+import type { Garden, PlantInstance, PlantSpecies, Task, TaskRecurrence, TaskTemplate } from './types'
 import { addDays, dateFromDoy, daysBetween, isoDate, parseIso, resolvePlant } from './plant'
 
 /**
@@ -99,6 +99,46 @@ export function mergeGeneratedTasks(existing: Task[], generated: Omit<Task, 'id'
     }
   }
   return merged
+}
+
+/** First occurrence of a (month, day) on or after `fromIso`. */
+export function nextOccurrenceOf(month: number, day: number, fromIso: string): string {
+  const from = parseIso(fromIso)
+  let d = new Date(from.getFullYear(), month - 1, day)
+  if (d < from) d = new Date(from.getFullYear() + 1, month - 1, day)
+  return isoDate(d)
+}
+
+/** Due date of the next occurrence after a recurring task is completed. */
+export function nextDue(dueOn: string, recurrence: TaskRecurrence): string {
+  if (recurrence.type === 'weeks') return addDays(dueOn, recurrence.interval * 7)
+  const d = parseIso(dueOn)
+  d.setFullYear(d.getFullYear() + 1)
+  return isoDate(d)
+}
+
+export function recurrenceLabel(recurrence: TaskRecurrence): string {
+  return recurrence.type === 'yearly'
+    ? 'yearly'
+    : `every ${recurrence.interval} wk${recurrence.interval === 1 ? '' : 's'}`
+}
+
+/** Instantiate a species' recommended task templates for a newly created plant instance. */
+export function tasksFromTemplates(
+  instanceId: string,
+  templates: TaskTemplate[],
+  todayIso: string,
+): Omit<Task, 'id'>[] {
+  return templates.map((t) => ({
+    instanceId,
+    kind: t.kind,
+    title: t.title,
+    dueOn: nextOccurrenceOf(t.month, t.day ?? 1, todayIso),
+    status: 'open' as const,
+    origin: 'user' as const, // user-accepted; survives engine regeneration
+    notes: t.notes,
+    recurrence: t.repeat === 'yearly' ? ({ type: 'yearly' } as const) : undefined,
+  }))
 }
 
 export type Urgency = 'overdue' | 'soon' | 'upcoming'

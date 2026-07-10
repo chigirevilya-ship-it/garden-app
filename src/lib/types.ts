@@ -37,9 +37,21 @@ export interface SpeciesFields {
   defaultColors?: SeasonalColors
 }
 
+/** A care action tied to a calendar point, stored on a species and instantiated per plant instance. */
+export interface TaskTemplate {
+  title: string
+  kind: TaskKind
+  month: number // 1–12
+  day?: number
+  repeat: 'yearly' | 'once'
+  notes?: string
+}
+
 export interface PlantSpecies extends SpeciesFields {
   id: string
   source: 'seed' | 'user' | 'ai'
+  /** AI/user-recommended care tasks, copied to new instances of this species. */
+  taskTemplates?: TaskTemplate[]
 }
 
 /** Keys a gardener can override with observed values (US-204). */
@@ -96,6 +108,9 @@ export interface Placement {
 export type TaskKind = 'prune' | 'fertilize' | 'water' | 'frost_protect' | 'custom'
 export type TaskStatus = 'open' | 'done' | 'dismissed' | 'snoozed'
 
+/** How a task repeats: completing it spawns the next occurrence. */
+export type TaskRecurrence = { type: 'yearly' } | { type: 'weeks'; interval: number }
+
 export interface Task {
   id: string
   instanceId?: string
@@ -108,6 +123,7 @@ export interface Task {
   notes?: string
   origin: 'generated' | 'user'
   genKey?: string // '{instanceId}:{kind}:{year}[:n]' — idempotent regeneration
+  recurrence?: TaskRecurrence
 }
 
 export type JournalTag = 'concern' | 'milestone' | 'treatment'
@@ -148,4 +164,28 @@ export interface Garden {
   widthUnits: number // ft
   heightUnits: number
   units: 'imperial' | 'metric'
+}
+
+/** The complete persisted state of one garden — what the server (or local storage) stores per garden. */
+export interface GardenData {
+  garden: Garden
+  beds: Bed[]
+  species: PlantSpecies[]
+  instances: PlantInstance[]
+  placements: Placement[]
+  tasks: Task[]
+  journal: JournalEntry[]
+  inventory: InventoryItem[]
+  companionRules: CompanionRule[]
+}
+
+export interface GardenMeta {
+  id: string
+  name: string
+  updatedAt: string
+}
+
+export interface User {
+  id: string
+  username: string
 }

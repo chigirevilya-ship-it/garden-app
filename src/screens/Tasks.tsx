@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom'
 import { useGarden } from '../store'
 import { usePlantRows } from '../lib/selectors'
 import { addDays, dateFromDoy, daysBetween, formatDate, parseIso, today } from '../lib/plant'
-import { taskUrgency, type Urgency } from '../lib/taskEngine'
+import { recurrenceLabel, taskUrgency, type Urgency } from '../lib/taskEngine'
 import { Button, Card, Chip, EmptyState, Field, PageHeader, icons, inputClass } from '../components/ui'
-import type { Task } from '../lib/types'
+import type { Task, TaskRecurrence } from '../lib/types'
 
 const KIND_LABEL: Record<string, string> = {
   prune: 'Prune',
@@ -34,6 +34,7 @@ function TaskCard({ task }: { task: Task }) {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm font-semibold">{task.title}</p>
+          {task.recurrence && <Chip color="green">↻ {recurrenceLabel(task.recurrence)}</Chip>}
           {task.status === 'snoozed' && <Chip color="blue">Snoozed → {formatDate(effectiveDue)}</Chip>}
         </div>
         <p className="mt-0.5 text-xs text-ink-soft">
@@ -60,7 +61,12 @@ function TaskCard({ task }: { task: Task }) {
             : `in ${daysBetween(t, effectiveDue)}d`}
       </Chip>
       <div className="flex gap-1">
-        <Button variant="secondary" className="!min-h-10 !px-2.5" title="Mark complete" onClick={() => setTaskStatus(task.id, 'done')}>
+        <Button
+          variant="secondary"
+          className="!min-h-10 !px-2.5"
+          title={task.recurrence ? 'Mark complete (schedules the next occurrence)' : 'Mark complete'}
+          onClick={() => setTaskStatus(task.id, 'done')}
+        >
           {icons.check('h-4 w-4')}
         </Button>
         <Button
@@ -71,7 +77,12 @@ function TaskCard({ task }: { task: Task }) {
         >
           {icons.clock('h-4 w-4')}
         </Button>
-        <Button variant="ghost" className="!min-h-10 !px-2.5" title="Dismiss" onClick={() => setTaskStatus(task.id, 'dismissed')}>
+        <Button
+          variant="ghost"
+          className="!min-h-10 !px-2.5"
+          title={task.recurrence ? 'Dismiss (ends the repeat)' : 'Dismiss'}
+          onClick={() => setTaskStatus(task.id, 'dismissed')}
+        >
           {icons.x('h-4 w-4')}
         </Button>
       </div>
@@ -86,6 +97,8 @@ function AddTaskForm({ onClose }: { onClose: () => void }) {
   const [dueOn, setDueOn] = useState(today())
   const [instanceId, setInstanceId] = useState('')
   const [notes, setNotes] = useState('')
+  const [repeat, setRepeat] = useState<'none' | 'yearly' | 'weeks'>('none')
+  const [weeks, setWeeks] = useState('4')
 
   return (
     <Card className="mb-5 p-4">
@@ -94,7 +107,13 @@ function AddTaskForm({ onClose }: { onClose: () => void }) {
         onSubmit={(e) => {
           e.preventDefault()
           if (!title.trim()) return
-          addCustomTask(title.trim(), dueOn, instanceId || undefined, notes.trim() || undefined)
+          const recurrence: TaskRecurrence | undefined =
+            repeat === 'yearly'
+              ? { type: 'yearly' }
+              : repeat === 'weeks'
+                ? { type: 'weeks', interval: Math.max(1, Number(weeks) || 4) }
+                : undefined
+          addCustomTask(title.trim(), dueOn, instanceId || undefined, notes.trim() || undefined, recurrence)
           onClose()
         }}
       >
@@ -119,6 +138,25 @@ function AddTaskForm({ onClose }: { onClose: () => void }) {
         <Field label="Notes (optional)">
           <input className={inputClass} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label="Repeats">
+            <select className={`${inputClass} !w-44`} value={repeat} onChange={(e) => setRepeat(e.target.value as typeof repeat)}>
+              <option value="none">Doesn't repeat</option>
+              <option value="yearly">Every year</option>
+              <option value="weeks">Every N weeks</option>
+            </select>
+          </Field>
+          {repeat === 'weeks' && (
+            <Field label="Weeks">
+              <input type="number" min={1} className={`${inputClass} !w-20`} value={weeks} onChange={(e) => setWeeks(e.target.value)} />
+            </Field>
+          )}
+        </div>
+        {repeat !== 'none' && (
+          <p className="text-xs text-ink-soft sm:col-span-2">
+            Completing a repeating task schedules the next one automatically; dismissing it ends the series.
+          </p>
+        )}
         <div className="flex gap-2 sm:col-span-2">
           <Button type="submit">Add task</Button>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>

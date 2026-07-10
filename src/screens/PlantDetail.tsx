@@ -5,8 +5,8 @@ import { usePlantRows } from '../lib/selectors'
 import { MONTH_NAMES, formatDate, formatHeight, today } from '../lib/plant'
 import { Button, Card, Chip, ColorSwatchStrip, EmptyState, Field, icons, inputClass } from '../components/ui'
 import { typeLabel } from './Plants'
-import type { JournalTag, OverridableKey, Overrides, PlantSpecies, Season, SeasonalColors } from '../lib/types'
-import { SEASONS } from '../lib/plant'
+import type { JournalTag, OverridableKey, Overrides, PlantSpecies, SeasonalColors } from '../lib/types'
+import { SeasonPalettePicker } from '../components/PalettePicker'
 
 type EditorKind = 'number' | 'months' | 'month' | 'water' | 'sun' | 'boolean'
 
@@ -115,21 +115,11 @@ function SeasonalColorsEditor({
         These paint this plant's marker on the Garden Map and its chips on the Calendar as the
         seasons change — pick what the plant actually looks like each season.
       </p>
-      <div className="grid grid-cols-4 gap-2">
-        {SEASONS.map((season: Season) => (
-          <label key={season} className="flex flex-col items-center gap-1.5">
-            <input
-              type="color"
-              value={colors[season]}
-              disabled={archived}
-              onChange={(e) => setSeasonalColors(instanceId, { ...colors, [season]: e.target.value })}
-              className="h-11 w-full cursor-pointer rounded-lg border border-line bg-cream p-1 disabled:cursor-not-allowed"
-              aria-label={`${season} color`}
-            />
-            <span className="text-[11px] font-medium text-ink-soft capitalize">{season}</span>
-          </label>
-        ))}
-      </div>
+      <SeasonPalettePicker
+        colors={colors}
+        disabled={archived}
+        onChange={(next) => setSeasonalColors(instanceId, next)}
+      />
       {custom && !archived && (
         <button
           className="mt-3 cursor-pointer text-xs text-ink-soft underline hover:text-ink"
